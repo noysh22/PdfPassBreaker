@@ -25,7 +25,7 @@ build: $(TARGET)
 	@true
 
 clean:
-	@rm -f $(TARGET)
+	@rm -rf bin/
 
 install:
 	@go install $(LDFLAGS)
