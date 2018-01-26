@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	b "github.com/noysh22/pdf_breaker/breaker"
 	unicommon "github.com/unidoc/unidoc/common"
 )
 
@@ -53,24 +54,19 @@ func main() {
 		return
 	}
 	fmt.Printf("filename: %s\nmax length: %d\n", args.filename, args.passMaxLength)
-	// const filepath = "/Users/noyshi01/Documents/slip.pdf"
-	// file, err := os.Open(args.filename)
-	// if err != nil {
-	// 	panic(fmt.Sprintf("Error: %v\n", err))
-	// }
-	// defer file.Close()
 
-	// reader, err := pdf.NewPdfReader(file)
-	// if err != nil {
-	// 	panic(fmt.Sprintf("Error: %v\n", err))
-	// }
+	breaker, err := b.NewBreaker(args.filename, args.passMaxLength)
+	if nil != err {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
 
-	// if isEncrypted, _ := reader.IsEncrypted(); isEncrypted {
-	// 	fmt.Println("File encrypted")
-	// } else {
-	// 	fmt.Println("File not protected")
-	// }
-	// reader.CheckAccessRights([]byte(password))
+	pass, err := breaker.BruteForce()
+	if nil != err {
+		fmt.Printf("Error brute forcing: %v\n", err)
+		return
+	}
 
+	fmt.Printf("PASSWORD CRACKED, Pass is: %s\n", pass)
 	fmt.Println("Great success")
 }
