@@ -5,16 +5,21 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	b "github.com/noysh22/pdf_breaker/breaker"
 	unicommon "github.com/unidoc/unidoc/common"
 )
 
-const argc = 2
+const (
+	argc           = 2
+	defaultTimeout = 2 * time.Minute
+)
 
 type argsT struct {
 	filename      string
 	passMaxLength uint
+	timeout       time.Duration
 }
 
 func parseArgs() (*argsT, error) {
@@ -29,6 +34,7 @@ func parseArgs() (*argsT, error) {
 
 	flag.StringVar(&args.filename, "f", "", "Filename for the pdf to break")
 	flag.UintVar(&args.passMaxLength, "l", passDefaultLength, "Max length for the password")
+	flag.DurationVar(&args.timeout, "t", defaultTimeout, "Timeout for trying cracking the password in minutes")
 	flag.Parse()
 
 	if "" == args.filename {
@@ -40,7 +46,7 @@ func parseArgs() (*argsT, error) {
 
 func printUsage() {
 	fmt.Println("====================== USAGE ======================")
-	fmt.Println("pdf_breaker -f {filename} -l {passMaxLength}")
+	fmt.Println("pdf_breaker -f {filename} -l {passMaxLength} -t {timeout}")
 	fmt.Println("========================   ========================")
 }
 
@@ -61,7 +67,7 @@ func main() {
 		return
 	}
 
-	pass, err := breaker.BruteForce()
+	pass, err := breaker.BruteForce(args.timeout)
 	if nil != err {
 		fmt.Printf("Error brute forcing: %v\n", err)
 		return

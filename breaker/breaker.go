@@ -22,7 +22,7 @@ var (
 // interface representing a PDF breaker object
 type Breaker interface {
 	// New(filename string, passMaxLength uint) (*Breaker, error)
-	BruteForce() ([]byte, error)
+	BruteForce(time.Duration) ([]byte, error)
 	IsEncrypted() (bool, error)
 }
 
@@ -30,6 +30,7 @@ type Breaker interface {
 type PDFBreaker struct {
 	pdfReader     *pdf.PdfReader
 	passMaxLength uint
+	isTimedout    bool
 }
 
 // NewBreaker ...
@@ -37,19 +38,17 @@ type PDFBreaker struct {
 func NewBreaker(filename string, passMaxLength uint) (Breaker, error) {
 	file, err := os.Open(filename)
 	if nil != err {
-		// panic()
 		return nil, fmt.Errorf("Error opening file: %v", err)
 	}
 	defer file.Close()
 
 	reader, err := pdf.NewPdfReader(file)
 	if nil != err {
-		// panic()
 		return nil, fmt.Errorf("Error creating pdf reader: %v", err)
 	}
 
 	gInfo = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
-	breaker := &PDFBreaker{pdfReader: reader, passMaxLength: passMaxLength}
+	breaker := &PDFBreaker{pdfReader: reader, passMaxLength: passMaxLength, isTimedout: false}
 	return breaker, nil
 }
 
@@ -59,24 +58,45 @@ func initPasswordSlice(password []byte, initVal byte) {
 	}
 }
 
+func (breaker *PDFBreaker) shouldTimeout(timeoutChan chan bool) bool {
+	if breaker.isTimedout {
+		return true
+	}
+
+	select {
+	case <-timeoutChan:
+		breaker.isTimedout = true
+		return true
+	default:
+		return false
+	}
+}
+
 // crackRec ...
 // Try crack a given passwrod buffer with all the passwords combinations
 // possible for the size of the buffer
 // function is executing in a recursive way
-func crackRec(password []byte, index int, size int, validate func([]byte) bool) bool {
+func (breaker *PDFBreaker) crackRec(
+	password []byte,
+	index int,
+	size int,
+	validate func([]byte) bool,
+	timeoutChan chan bool) bool {
+
+	timedout := breaker.shouldTimeout(timeoutChan)
 	// Iterate over all the options chars possible in a password
-	for i := 0; i < len(gChars); i++ {
+	for i := 0; i < len(gChars) && !timedout; i++ {
 		// set current index to a gives char
 		password[index] = gChars[i]
 		// keep calling crack as long as index is smaller that size
-		if size-1 > index {
+		if size-1 > index && !timedout {
 			// Check pass recursive
-			if crackRec(password, index+1, size, validate) {
+			if breaker.crackRec(password, index+1, size, validate, timeoutChan) {
 				return true
 			}
 			// try to validate only if are checking a full password
 			// To save validate calls
-		} else if index == size-1 && validate(password) {
+		} else if index == size-1 && validate(password) && !timedout {
 			return true
 		}
 	}
@@ -84,34 +104,49 @@ func crackRec(password []byte, index int, size int, validate func([]byte) bool) 
 }
 
 // BruteForce ...
-func (breaker *PDFBreaker) BruteForce() ([]byte, error) {
+// timeout -> timeout time in time.Duration
+func (breaker *PDFBreaker) BruteForce(timeout time.Duration) ([]byte, error) {
+	timeoutChan := make(chan bool)
+	defer close(timeoutChan)
+	timeoutDuration := time.Duration(timeout)
+
 	if isEncrypted, _ := breaker.IsEncrypted(); !isEncrypted {
 		return nil, fmt.Errorf("Cannot brute force unprotected file")
 	}
 
+	// Init password buffer
 	password := make([]byte, breaker.passMaxLength)
 	initPasswordSlice(password, cInitChar)
 
+	// Validate password callback
 	checkPassword := func([]byte) bool {
 		isCorrect, _, _ := breaker.pdfReader.CheckAccessRights(password)
 		return isCorrect
 	}
 
 	start := time.Now()
-	if !crackRec(password, 0, len(password), checkPassword) {
-		return nil, fmt.Errorf("Failed brute forcing the password")
+	// Start timeout counter
+	go func() {
+		// Wait timeoutDuration seconds
+		<-time.After(timeoutDuration)
+		timeoutChan <- true
+	}()
+
+	// Try crack password recursivly
+	if !breaker.crackRec(password, 0, len(password), checkPassword, timeoutChan) {
+		return nil, fmt.Errorf("Failed brute forcing the password, Timeout: %t",
+			breaker.isTimedout)
 	}
 	crackTime := time.Since(start)
 	gInfo.Printf("Cracking password took %s\n", crackTime)
 
 	_, accessRights, err := breaker.pdfReader.CheckAccessRights(password)
-
 	if nil != err {
 		fmt.Println("Failed getting access rights")
 		gInfo.Println("Failed getting access rights")
 	} else {
-		fmt.Printf("Access rights: %v\b", accessRights)
-		gInfo.Printf("Access rights: %v\b", accessRights)
+		fmt.Printf("Access rights: %v\n", accessRights)
+		gInfo.Printf("Access rights: %v\n", accessRights)
 	}
 
 	return password, nil
