@@ -13,7 +13,7 @@ import (
 
 const (
 	argc           = 2
-	defaultTimeout = 2 * time.Minute
+	defaultTimeout = 1 * time.Minute
 )
 
 type argsT struct {
@@ -50,6 +50,41 @@ func printUsage() {
 	fmt.Println("========================   ========================")
 }
 
+func heapMut(arr []byte, validate func(arr []byte) bool) {
+	temp := make([]byte, len(arr))
+
+	for i := 0; i < len(arr); i++ {
+		temp[i] = 0
+	}
+
+	// fmt.Println(arr)
+	if validate(arr) {
+		fmt.Println("Found")
+		fmt.Println(arr)
+	}
+
+	i := 0
+	for i < len(arr) {
+		if temp[i] < byte(i) {
+			if i%2 == 0 {
+				arr[i], arr[0] = arr[0], arr[i]
+			} else {
+				arr[temp[i]], arr[i] = arr[i], arr[temp[i]]
+			}
+
+			if validate(arr) {
+				fmt.Println("Found")
+				fmt.Println(arr)
+			}
+			temp[i]++
+			i = 0
+		} else {
+			temp[i] = 0
+			i++
+		}
+	}
+}
+
 func main() {
 	fmt.Println("PDF BREAKER")
 	unicommon.SetLogger(unicommon.NewConsoleLogger(unicommon.LogLevelDebug))
@@ -67,7 +102,7 @@ func main() {
 		return
 	}
 
-	pass, err := breaker.BruteForce(args.timeout)
+	pass, err := breaker.BruteForce(args.timeout, false)
 	if nil != err {
 		fmt.Printf("Error brute forcing: %v\n", err)
 		return
@@ -75,4 +110,12 @@ func main() {
 
 	fmt.Printf("PASSWORD CRACKED, Pass is: %s\n", pass)
 	fmt.Println("Great success")
+
+	// for i := 0; i < len(gChars); i++ {
+	// 	for j := 0; j < len(arr); j++ {
+	// 		arr[j] = gChars[i]
+	// 		heapMut(arr, validate)
+	// 	}
+	// }
+	// heapMut([]int{1, 3, 3}, validate)
 }

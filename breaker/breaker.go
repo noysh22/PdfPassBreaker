@@ -3,6 +3,7 @@ package breaker
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"time"
 
@@ -22,7 +23,7 @@ var (
 // interface representing a PDF breaker object
 type Breaker interface {
 	// New(filename string, passMaxLength uint) (*Breaker, error)
-	BruteForce(time.Duration) ([]byte, error)
+	BruteForce(time.Duration, bool) ([]byte, error)
 	IsEncrypted() (bool, error)
 }
 
@@ -103,9 +104,41 @@ func (breaker *PDFBreaker) crackRec(
 	return false
 }
 
+// crack ...
+// This method iterates sequancially over all number possibilities
+// in order to find the password
+// Not very efficient at the moment
+func (breaker *PDFBreaker) crack(
+	password []byte,
+	validate func([]byte) bool,
+	timeoutChan chan bool) bool {
+
+	shouldStop := breaker.shouldTimeout(timeoutChan)
+	posibilities := math.Pow(float64(len(gChars)), float64(len(password)))
+
+	// Iterate over all posibilities
+	for i := 0; i < int(posibilities) && !shouldStop; i++ {
+		curPosibility := i
+
+		for j := 0; j < len(password) && !shouldStop; j++ {
+			charIndex := curPosibility % len(gChars)
+			password[j] = gChars[charIndex]
+			curPosibility /= len(gChars)
+		}
+
+		if validate(password) {
+			return true
+		}
+
+		shouldStop = breaker.shouldTimeout(timeoutChan)
+	}
+
+	return false
+}
+
 // BruteForce ...
 // timeout -> timeout time in time.Duration
-func (breaker *PDFBreaker) BruteForce(timeout time.Duration) ([]byte, error) {
+func (breaker *PDFBreaker) BruteForce(timeout time.Duration, isRecursive bool) ([]byte, error) {
 	timeoutChan := make(chan bool)
 	defer close(timeoutChan)
 	timeoutDuration := time.Duration(timeout)
@@ -119,24 +152,40 @@ func (breaker *PDFBreaker) BruteForce(timeout time.Duration) ([]byte, error) {
 	initPasswordSlice(password, cInitChar)
 
 	// Validate password callback
-	checkPassword := func([]byte) bool {
-		isCorrect, _, _ := breaker.pdfReader.CheckAccessRights(password)
+	checkPassword := func(pass []byte) bool {
+		isCorrect, _, _ := breaker.pdfReader.CheckAccessRights(pass)
 		return isCorrect
 	}
 
 	start := time.Now()
 	// Start timeout counter
 	go func() {
+		// safe send data to the channel
+		defer func() {
+			if recover() != nil {
+				gInfo.Println("Safely recovered from channel panic")
+			}
+		}()
+
 		// Wait timeoutDuration seconds
 		<-time.After(timeoutDuration)
 		timeoutChan <- true
+
 	}()
 
 	// Try crack password recursivly
-	if !breaker.crackRec(password, 0, len(password), checkPassword, timeoutChan) {
-		return nil, fmt.Errorf("Failed brute forcing the password, Timeout: %t",
-			breaker.isTimedout)
+	if isRecursive {
+		if !breaker.crackRec(password, 0, len(password), checkPassword, timeoutChan) {
+			return nil, fmt.Errorf("Failed brute forcing the password, Timeout: %t",
+				breaker.isTimedout)
+		}
+	} else {
+		if !breaker.crack(password, checkPassword, timeoutChan) {
+			return nil, fmt.Errorf("Failed brute forcing the password, Timeout: %t",
+				breaker.isTimedout)
+		}
 	}
+
 	crackTime := time.Since(start)
 	gInfo.Printf("Cracking password took %s\n", crackTime)
 
@@ -160,4 +209,8 @@ func (breaker *PDFBreaker) IsEncrypted() (bool, error) {
 // GetPassMaxLength ...
 func (breaker *PDFBreaker) GetPassMaxLength() uint {
 	return breaker.passMaxLength
+}
+
+func (breaker *PDFBreaker) GetReader() *pdf.PdfReader {
+	return breaker.pdfReader
 }

@@ -8,10 +8,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-const TestProtected = "./tests_files/test_protected.pdf"
-const TestUnprotectedPdf = "./tests_files/test_notprotected.pdf"
-const MaxPassLen = uint(6)
-const DefaultTimeout = 30 * time.Second
+const (
+	TestProtected      = "./tests_files/test_protected.pdf"
+	TestUnprotectedPdf = "./tests_files/test_notprotected.pdf"
+	MaxPassLen         = uint(6)
+	DefaultTimeout     = 30 * time.Second
+	RunRecursive       = true // Running recurrsive solution (more efficient)
+)
 
 func setupTestCase(pdfFile string,
 	maxPassLen uint,
@@ -54,7 +57,7 @@ func TestBruteForceUnProtectedFile(t *testing.T) {
 	breaker, tearDown := setupTestCase(TestUnprotectedPdf, MaxPassLen, t)
 	defer tearDown(t)
 
-	_, err := breaker.BruteForce(DefaultTimeout)
+	_, err := breaker.BruteForce(DefaultTimeout, RunRecursive)
 
 	assert.NotNil(t, err)
 	assert.Equal(t, "Cannot brute force unprotected file", err.Error())
@@ -65,7 +68,18 @@ func TestBruteForceSanity(t *testing.T) {
 	defer tearDown(t)
 
 	expectedResult := []byte("123456")
-	pass, err := breaker.BruteForce(DefaultTimeout)
+	pass, err := breaker.BruteForce(DefaultTimeout, RunRecursive)
+
+	assert.Nil(t, err)
+	assert.Equal(t, expectedResult, pass)
+	t.Logf("passwords cracked: %s", pass)
+}
+func TestBruteForceSequential(t *testing.T) {
+	breaker, tearDown := setupTestCase(TestProtected, MaxPassLen, t)
+	defer tearDown(t)
+
+	expectedResult := []byte("123456")
+	pass, err := breaker.BruteForce(5*time.Minute, false)
 
 	assert.Nil(t, err)
 	assert.Equal(t, expectedResult, pass)
@@ -76,7 +90,7 @@ func TestBruteForceTimeout(t *testing.T) {
 	breaker, tearDown := setupTestCase(TestProtected, MaxPassLen, t)
 	defer tearDown(t)
 
-	pass, err := breaker.BruteForce(2 * time.Second)
+	pass, err := breaker.BruteForce(2*time.Second, RunRecursive)
 
 	assert.Nil(t, pass)
 	assert.NotNil(t, err)
